@@ -26,3 +26,7 @@ Build the application for production:
 ```bash
 npm run build
 ```
+
+## More info
+
+[Here is the link to backend API documentation](/utils/compute_trajectory.md)

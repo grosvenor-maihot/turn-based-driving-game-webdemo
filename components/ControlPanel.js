@@ -59,7 +59,7 @@ function ControlPanel({
             
             <Panel>
                 <CombinedSlider
-                    value={params.combinedControl || 0}
+                    value={0} // Default to 0 since we calculate throttle/brake/handbrake separately
                     onChange={onParamChange}
                 />
             </Panel>

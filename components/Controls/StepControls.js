@@ -1,4 +1,3 @@
-import { memo } from 'react';
 import { ButtonGroup, Button } from '../../styles/MainStyles';
 
 /**
@@ -12,7 +11,7 @@ import { ButtonGroup, Button } from '../../styles/MainStyles';
  * @param {boolean} [props.disablePrevious=false] - Whether previous step button should be disabled
  * @returns {JSX.Element} - Rendered step controls
  */
-export const StepControls = memo(function StepControls({
+export function StepControls({
     currentStep,
     onPreviousStep,
     onNextStep,
@@ -37,4 +36,4 @@ export const StepControls = memo(function StepControls({
           </Button>
         </ButtonGroup>
     );
-});
+}

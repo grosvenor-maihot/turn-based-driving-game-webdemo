@@ -1,4 +1,4 @@
-import { memo, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import {
     CombinedSliderContainer,
@@ -12,7 +12,7 @@ import { COMBINED_CONTROL_RANGES, COMBINED_CONTROL_LABELS } from '../../utils/co
 const ControlMarker = styled.div`
     position: absolute;
     top: -20px;
-    left: ${props => props.position}%;
+    left: ${props => props.$position}%;
     transform: translateX(-50%);
     background-color: #007bff;
     color: white;
@@ -37,26 +37,9 @@ const SliderContainer = styled.div`
  * @param {Function} props.onChange - Handler for value changes
  * @returns {JSX.Element} - Rendered slider component
  */
-export const CombinedSlider = memo(function CombinedSlider({ value = 0, onChange }) {
+export function CombinedSlider({ value = 0, onChange }) {
+    // Simple state for the slider value
     const [sliderValue, setSliderValue] = useState(value);
-    const [controlState, setControlState] = useState('neutral');
-    
-    // Calculate the slider position as a percentage for the marker
-    const sliderPosition = ((sliderValue - COMBINED_CONTROL_RANGES.min) /
-        (COMBINED_CONTROL_RANGES.max - COMBINED_CONTROL_RANGES.min)) * 100;
-    
-    // Update the control state based on the slider value
-    useEffect(() => {
-        if (sliderValue < -100) {
-            setControlState('handbrake');
-        } else if (sliderValue < 0) {
-            setControlState('brake');
-        } else if (sliderValue === 0) {
-            setControlState('neutral');
-        } else {
-            setControlState('throttle');
-        }
-    }, [sliderValue]);
     
     // Handle slider change
     const handleChange = (e) => {
@@ -69,29 +52,20 @@ export const CombinedSlider = memo(function CombinedSlider({ value = 0, onChange
         <CombinedSliderContainer>
             <Label>Vehicle Controls</Label>
             <CombinedSliderLabel>
-                <span>{COMBINED_CONTROL_LABELS.handbrake}</span>
-                <span>{COMBINED_CONTROL_LABELS.brake}</span>
-                <span>{COMBINED_CONTROL_LABELS.neutral}</span>
-                <span>{COMBINED_CONTROL_LABELS.throttle}</span>
+                <span>Handbrake</span>
+                <span>Brake</span>
+                <span>Neutral</span>
+                <span>Throttle</span>
             </CombinedSliderLabel>
             
-            <SliderContainer>
-                <ControlMarker position={sliderPosition}>
-                    {COMBINED_CONTROL_LABELS[controlState]}
-                </ControlMarker>
-                <Slider
-                    type="range"
-                    min={COMBINED_CONTROL_RANGES.min}
-                    max={COMBINED_CONTROL_RANGES.max}
-                    value={sliderValue}
-                    onChange={handleChange}
-                    aria-label="Vehicle control slider"
-                    aria-valuemin={COMBINED_CONTROL_RANGES.min}
-                    aria-valuemax={COMBINED_CONTROL_RANGES.max}
-                    aria-valuenow={sliderValue}
-                    aria-valuetext={COMBINED_CONTROL_LABELS[controlState]}
-                />
-            </SliderContainer>
+            <Slider
+                type="range"
+                min={-200}
+                max={100}
+                value={sliderValue}
+                onChange={handleChange}
+                aria-label="Vehicle control slider"
+            />
         </CombinedSliderContainer>
     );
-});
+}

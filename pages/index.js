@@ -1,85 +1,105 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import styled from 'styled-components';
 import ControlPanel from '../components/ControlPanel';
-
 import Canvas from '../components/Canvas/Canvas';
 import { loadMetadata, fetchTrajectoryFromAPI } from '../utils/dataFetching';
-import { Container, Header, Status, ToggleSwitch, StepIndicator } from '../styles/MainStyles';
+import { Container, Header, Status, ToggleSwitch, StepIndicator, Message } from '../styles/MainStyles';
+import { ERROR_MESSAGES } from '../utils/constants';
 
+/**
+ * Default initial parameters for the simulation
+ */
+const DEFAULT_PARAMS = {
+    x: 0,
+    y: 0,
+    yaw: 0.0,
+    initial_speed: 10,
+    steering: 20,
+    road_condition: 'dirt',
+    vehicle_type: 'four_wheel_drive',
+    throttle: 50,
+    brake: 0,
+    handbrake: 0,
+    scale: 3
+};
+
+/**
+ * Home page component for the turn-based driving simulator
+ */
 export default function Home() {
+    // Step management
     const [currentStep, setCurrentStep] = useState(1);
     const [steps, setSteps] = useState([{
-        params: {
-            x: 0,
-            y: 0,
-            yaw: 0.0,
-            initial_speed: 10,
-            steering: 20,
-            road_condition: 'dirt',
-            vehicle_type: 'four_wheel_drive',
-            throttle: 50,
-            brake: 0,
-            handbrake: 0,
-            scale: 3
-        },
+        params: { ...DEFAULT_PARAMS },
         positions: []
     }]);
+    
+    // Application state
     const [metadata, setMetadata] = useState(null);
-    const [positions, setPositions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-
     const [activeControl, setActiveControl] = useState(null);
-    const [combinedControl, setCombinedControl] = useState(0); // -200 à 100 par exemple
 
-
-
+    /**
+     * Load metadata on component mount
+     */
     useEffect(() => {
-        loadMetadata()
-            .then(metadata => {
-                setMetadata(metadata);
+        const fetchMetadata = async () => {
+            try {
+                setLoading(true);
+                setError(null);
+                const metadataData = await loadMetadata();
+                setMetadata(metadataData);
 
-                // Initialize parameters
+                // Initialize parameters with values from metadata
                 const initialParams = {
-                    x: 0,
-                    y: 0,
-                    yaw: 0.0,
-                    initial_speed: metadata.params_ranges.initial_speed.default,
-                    steering: metadata.params_ranges.steering.default,
-                    scale: metadata.view_params.scale.default,
-                    road_condition: metadata.params_ranges.controls.params.road_condition.default,
-                    vehicle_type: metadata.params_ranges.controls.params.vehicle_type.default,
+                    ...DEFAULT_PARAMS,
+                    initial_speed: metadataData.params_ranges.initial_speed.default,
+                    steering: metadataData.params_ranges.steering.default,
+                    scale: metadataData.view_params.scale.default,
+                    road_condition: metadataData.params_ranges.controls.params.road_condition.default,
+                    vehicle_type: metadataData.params_ranges.controls.params.vehicle_type.default,
                     throttle: 100,
                     brake: 0,
                     handbrake: 0
                 };
 
                 // Initialize first control as active
-                const firstControl = Object.keys(metadata.params_ranges.controls.params)
+                const firstControl = Object.keys(metadataData.params_ranges.controls.params)
                     .find(param => param !== 'road_condition' && param !== 'vehicle_type');
                 setActiveControl(firstControl);
-                initialParams[firstControl] = metadata.params_ranges.controls.params[firstControl].default;
+                initialParams[firstControl] = metadataData.params_ranges.controls.params[firstControl].default;
 
                 setSteps([{
                     params: initialParams,
                     positions: []
                 }]);
-            })
-            .catch(err => {
+            } catch (err) {
                 console.error('Error loading metadata:', err);
-                setError('Failed to load metadata');
-            });
+                setError(ERROR_MESSAGES.METADATA_LOAD);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchMetadata();
     }, []);
 
+    /**
+     * Fetch trajectory data when parameters change
+     */
     useEffect(() => {
-        if (!metadata || Object.keys(steps).length === 0) return;
+        if (!metadata || !steps[currentStep - 1]) return;
 
         const updateTrajectory = async () => {
             setLoading(true);
             setError(null);
             try {
-                const trajectoryData = await fetchTrajectoryFromAPI(steps[currentStep - 1].params);
-                const newPositions = trajectoryData.x.map((x, i) => ({
+                const currentParams = steps[currentStep - 1].params;
+                const trajectoryData = await fetchTrajectoryFromAPI(currentParams);
+                
+                // Map trajectory data to position objects
+                const newPositions = trajectoryData.x.map((_, i) => ({
                     x: trajectoryData.x[i],
                     y: trajectoryData.y[i],
                     yaw: trajectoryData.yaw[i],
@@ -88,6 +108,7 @@ export default function Home() {
                     yaw_rate: trajectoryData.yaw_rate[i]
                 }));
 
+                // Update steps with new positions
                 setSteps(prevSteps => {
                     const newSteps = [...prevSteps];
                     newSteps[currentStep - 1] = {
@@ -97,129 +118,187 @@ export default function Home() {
                     return newSteps;
                 });
             } catch (err) {
-                console.error('Erreur:', err);
-                setError('Impossible de charger la trajectoire.');
+                console.error('Error fetching trajectory:', err);
+                setError(ERROR_MESSAGES.TRAJECTORY_LOAD);
             } finally {
                 setLoading(false);
             }
         };
-        updateTrajectory();
-    }, [steps[currentStep - 1].params, currentStep]);
 
-    const handleParamChange = (paramName, value) => {
+        updateTrajectory();
+    }, [metadata, currentStep, steps[currentStep - 1]?.params]);
+
+    /**
+     * Handle parameter changes from controls
+     * @param {string} paramName - Name of the parameter to change
+     * @param {string|number} value - New value for the parameter
+     */
+    const handleParamChange = useCallback((paramName, value) => {
         setSteps(prevSteps => {
             const newSteps = [...prevSteps];
+            const currentStepIndex = currentStep - 1;
+            
+            // Handle string parameters (road_condition, vehicle_type)
             if (paramName === 'road_condition' || paramName === 'vehicle_type') {
-                newSteps[currentStep - 1] = {
-                    ...newSteps[currentStep - 1],
-                    params: {
-                        ...newSteps[currentStep - 1].params,
-                        [paramName]: value
-                    }
-                };
-                return newSteps;
-            } else {
-
+                return newSteps.map((step, index) =>
+                    index === currentStepIndex
+                        ? {
+                            ...step,
+                            params: {
+                                ...step.params,
+                                [paramName]: value
+                            }
+                          }
+                        : step
+                );
+            }
+            
+            // Handle combined controls
+            if (paramName === 'controls') {
                 const numValue = Number(value);
+                let handbrake = 0;
+                let brake = 0;
+                let throttle = 0;
 
-                if (paramName === 'controls') {
-                    // Réinitialiser tous les contrôles
-                    let handbrake = 0;
-                    let brake = 0;
-                    let throttle = 0;
+                // Calculate control values based on slider position
+                if (numValue < -100) { // Handbrake zone
+                    handbrake = 100;
+                } else if (numValue < 0) { // Brake zone
+                    brake = -numValue;
+                } else { // Throttle zone
+                    throttle = numValue;
+                }
 
-                    if (numValue < -100) { // Zone frein à main
-                        handbrake = 100; // Ajustez selon vos besoins
-                    } else if (numValue < 0) { // Zone frein
-                        brake = -numValue; // Ajustez selon vos besoins
-                    } else { // Zone accélérateur
-                        throttle = numValue;
-                    }
-
-                    newSteps[currentStep - 1] = {
-                        ...newSteps[currentStep - 1],
+                return newSteps.map((step, index) =>
+                    index === currentStepIndex
+                        ? {
+                            ...step,
+                            params: {
+                                ...step.params,
+                                handbrake,
+                                brake,
+                                throttle
+                            }
+                          }
+                        : step
+                );
+            }
+            
+            // Handle numeric parameters
+            const numValue = Number(value);
+            return newSteps.map((step, index) =>
+                index === currentStepIndex
+                    ? {
+                        ...step,
                         params: {
-                            ...newSteps[currentStep - 1].params,
-                            handbrake: handbrake,
-                            brake: brake,
-                            throttle: throttle
-                        }
-                    };
-                    return newSteps;
-
-                } else {
-                    newSteps[currentStep - 1] = {
-                        ...newSteps[currentStep - 1],
-                        params: {
-                            ...newSteps[currentStep - 1].params,
+                            ...step.params,
                             [paramName]: numValue
                         }
-                    };
-                    return newSteps;
-                }
-            }
+                      }
+                    : step
+            );
         });
-    };
+    }, [currentStep]);
 
-    // Ajoutez une vérification de sécurité dans le rendu
-    if (!metadata || !steps[currentStep - 1]) {
-        return <div>Loading...</div>;
-    }
-
-    const handleNextStep = () => {
-        const currentPositions = steps[currentStep - 1].positions;
-        const lastPosition = currentPositions[currentPositions.length - 1];
-
-        setSteps(prevSteps => [
-            ...prevSteps,
-            {
-                params: {
-                    ...prevSteps[currentStep - 1].params,
-                    x: lastPosition.x,
-                    y: lastPosition.y,
-                    yaw: lastPosition.yaw,
-                    initial_speed: lastPosition.speed,
-                    slip_angle: lastPosition.slip_angle,
-                    yaw_rate: lastPosition.yaw_rate,
-                    steering: 0 // Reset steering for new step
-                },
-                positions: []
+    /**
+     * Move to the next step in the simulation
+     */
+    const handleNextStep = useCallback(() => {
+        setSteps(prevSteps => {
+            const currentStepIndex = currentStep - 1;
+            const currentPositions = prevSteps[currentStepIndex].positions;
+            
+            // Ensure we have positions to use for the next step
+            if (!currentPositions || currentPositions.length === 0) {
+                return prevSteps;
             }
-        ]);
+            
+            const lastPosition = currentPositions[currentPositions.length - 1];
+            
+            // Create new step with updated initial conditions
+            return [
+                ...prevSteps,
+                {
+                    params: {
+                        ...prevSteps[currentStepIndex].params,
+                        x: lastPosition.x,
+                        y: lastPosition.y,
+                        yaw: lastPosition.yaw,
+                        initial_speed: lastPosition.speed,
+                        slip_angle: lastPosition.slip_angle,
+                        yaw_rate: lastPosition.yaw_rate,
+                        steering: 0 // Reset steering for new step
+                    },
+                    positions: []
+                }
+            ];
+        });
         setCurrentStep(prev => prev + 1);
-    };
+    }, [currentStep]);
 
-    const handlePreviousStep = () => {
+    /**
+     * Move to the previous step in the simulation
+     */
+    const handlePreviousStep = useCallback(() => {
         if (currentStep > 1) {
             setCurrentStep(prev => prev - 1);
-            setSteps(prevSteps => prevSteps.slice(0, -1));
+            setSteps(prevSteps => prevSteps.slice(0, prevSteps.length - 1));
         }
-    };
+    }, [currentStep]);
 
-    const allPositions = steps.slice(0, currentStep).flatMap(step => step.positions);
+    // Compute all positions for rendering
+    const allPositions = useMemo(() =>
+        steps.slice(0, currentStep).flatMap(step => step.positions),
+        [steps, currentStep]
+    );
+    
+    // Show loading state if metadata or current step is not available
+    if (!metadata || !steps[currentStep - 1]) {
+        return (
+            <Container>
+                <Header>Turned Based Driving Simulator</Header>
+                <Status>Loading simulation data...</Status>
+            </Container>
+        );
+    }
 
     return (
         <Container>
-            <Header>Turned Based Driving Simulator</Header>
+            <Header>Turn-Based Driving Simulator</Header>
             <StepIndicator>Turn #{currentStep}</StepIndicator>
 
+            {/* Control panel with all user inputs */}
             <ControlPanel
                 metadata={metadata}
                 params={steps[currentStep - 1].params}
                 onParamChange={handleParamChange}
                 onPreviousStep={handlePreviousStep}
                 onNextStep={handleNextStep}
+                currentStep={currentStep}
+                disableNext={loading || steps[currentStep - 1].positions.length === 0}
+                disablePrevious={currentStep <= 1 || loading}
             />
 
-
+            {/* Canvas visualization */}
             <Canvas
                 positions={allPositions}
                 steering={steps[currentStep - 1].params.steering}
                 scale={steps[currentStep - 1].params.scale}
+                previousSteps={steps.slice(0, currentStep - 1)}
             />
 
-            {loading && <Status>Loading trajectory...</Status>}
-            {error && <Status error>{error}</Status>}
+            {/* Status messages */}
+            {loading && (
+                <Status>
+                    <span role="status" aria-live="polite">Loading trajectory data...</span>
+                </Status>
+            )}
+            
+            {error && (
+                <Message error aria-live="assertive">
+                    <strong>Error:</strong> {error}
+                </Message>
+            )}
         </Container>
     );
 }
